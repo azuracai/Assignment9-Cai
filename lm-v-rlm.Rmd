@@ -1,0 +1,91 @@
+---
+title: "MSDS 597 Weeks 9/10"
+author: "Shiqin Cai"
+date: "11/25/2016"
+output: html_document
+---
+
+```{r, setup, include=F}
+library(gapminder)
+library(modelr)
+library(tidyverse) # mutate, map, nest
+```
+
+##### Following the approach in class for nested data frames, please calculate, for each country in the gapminder dataset, the slope of the linear regression of life expectency against log10 of per capita GDP. Do the same using the rlm function in the MASS package (rlm() gives robust estimates, which are less affected by outliers---the broom package works with the output of rlm). Produce a plot of the slope estimates from lm versus the slope estimates from rlm. Countries that don't fall near the diagonal line might have a non-normal error distribution. For the countries with the biggest differences in the two slope estimates, show the scatter plots of log10 per capita GDP versus life expectency.
+
+-----
+
+```{r}
+gap <- gapminder %>% mutate(log_gdpPercap = log10(gdpPercap)) %>%
+  group_by(country) %>% nest()
+```
+
+
+First, we fit the linear regression of life expectenct against log10 of per capita GDP for each country in the gapminder dataset.
+
+```{r}
+gap_lm <- function(df){
+  lm(lifeExp ~ log_gdpPercap, df)
+}
+# lm_fit
+gap_nested <- gap %>% mutate(lm_fit = map(data, gap_lm))
+```
+
+The slope of the linear regression for each country is:
+ 
+```{r}
+# function slope
+slope <- function(x) coef(x)[2]
+
+gap_nested <- gap_nested %>% mutate(lm_slope = map_dbl(lm_fit, slope))
+lm <- gap_nested %>% unnest(lm_slope, .drop = TRUE) %>% as.data.frame()
+head(lm)
+```
+
+-----
+
+Now we do the same using the rlm function in the MASS package.
+
+```{r, message=F, warning=F}
+library(MASS)
+library(broom)
+gap_rlm <- function(df){
+  rlm(lifeExp ~ log_gdpPercap, df)
+}
+# rlm_fit
+gap_nested1 <- gap %>% mutate(rlm_fit = map(data, gap_rlm))
+```
+
+The slope of the robost regression for each country is:
+
+```{r}
+gap_nested1 <- gap_nested1 %>%
+  mutate(rlm_slope = map_dbl(rlm_fit, slope))
+rlm <- gap_nested1 %>% unnest(rlm_slope, .drop=TRUE) %>% as.data.frame()
+head(rlm)
+```
+
+---
+
+The following graph shows a plot of the slope estimates from lm versus the slope estimates from rlm. Countries that don't fall near the diagonal line might have a non-normal error distribution.
+
+```{r}
+slope_join <- inner_join(lm, rlm)
+slope_join %>% ggplot(aes(lm_slope, rlm_slope)) + geom_point() + 
+  geom_line() + ggtitle("Slope Estimates")
+```
+
+
+From the results below, we see that Senegal has the biggest difference in the two slope estimates. The following graph shows the scatter plot of log10 per capita GDP versus life expectency for Senegal.
+
+```{r}
+slope_join <- slope_join %>% mutate(absdiff = abs(lm_slope - rlm_slope))
+gap_bad_fit <- slope_join %>% filter(absdiff == max(absdiff))
+gap_bad_fit
+
+gap %>% filter(country %in% gap_bad_fit$country) %>% unnest() %>%
+  ggplot(aes(log_gdpPercap, lifeExp, colour=year)) + geom_point() +
+  ggtitle("Senegal")
+```
+
+
